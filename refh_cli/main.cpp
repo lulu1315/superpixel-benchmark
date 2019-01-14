@@ -66,10 +66,8 @@ int main (int argc, char ** argv) {
         ("sigma,g", boost::program_options::value<float>()->default_value(0.0f), "sigma used for smoothing (no smoothing if zero)")
         ("threshold,t", boost::program_options::value<float>()->default_value(20.0f), "constant for threshold function")
         ("minimum-size,m", boost::program_options::value<int>()->default_value(10), "minimum component size")
-        ("csv,o", boost::program_options::value<std::string>()->default_value(""), "save segmentation as CSV file")
-        ("vis,v", boost::program_options::value<std::string>()->default_value(""), "visualize contours")
-        ("prefix,x", boost::program_options::value<std::string>()->default_value(""), "output file prefix")
-        ("wordy,w", "verbose/wordy/debug");
+        ("oc", boost::program_options::value<std::string>()->default_value("output"), "name of the contour picture")
+        ("om", boost::program_options::value<std::string>()->default_value("output"), "name of the mean picture");   
     
     boost::program_options::positional_options_description positionals;
     positionals.add("input", 1);
@@ -83,105 +81,46 @@ int main (int argc, char ** argv) {
         return 1;
     }
     
-    boost::filesystem::path output_dir(parameters["csv"].as<std::string>());
-    if (!output_dir.empty()) {
-        if (!boost::filesystem::is_directory(output_dir)) {
-            boost::filesystem::create_directories(output_dir);
-        }
-    }
-    
-    boost::filesystem::path vis_dir(parameters["vis"].as<std::string>());
-    if (!vis_dir.empty()) {
-        if (!boost::filesystem::is_directory(vis_dir)) {
-            boost::filesystem::create_directories(vis_dir);
-        }
-    }
-    
-    boost::filesystem::path input_dir(parameters["input"].as<std::string>());
-    if (!boost::filesystem::is_directory(input_dir)) {
-        std::cout << "Image directory not found ..." << std::endl;
-        return 1;
-    }
-    
-    std::string prefix = parameters["prefix"].as<std::string>();
-    
-    bool wordy = false;
-    if (parameters.find("wordy") != parameters.end()) {
-        wordy = true;
-    }
-    
+    std::string inputfile = parameters["input"].as<std::string>();
+    std::string store_contour = parameters["oc"].as<std::string>();
+    std::string store_mean = parameters["om"].as<std::string>();         
     float sigma = parameters["sigma"].as<float>();
     float threshold = parameters["threshold"].as<float>();
     int minimum_segment_size = parameters["minimum-size"].as<int>();
-    
-    std::multimap<std::string, boost::filesystem::path> images;
-    std::vector<std::string> extensions;
-    IOUtil::getImageExtensions(extensions);
-    IOUtil::readDirectory(input_dir, extensions, images);
-    
-    float total = 0;
-    for (std::multimap<std::string, boost::filesystem::path>::iterator it = images.begin(); 
-            it != images.end(); ++it) {
+            
+    cv::Mat image = cv::imread(inputfile);
         
-        cv::Mat image = cv::imread(it->first);
-        
-        // See lib_fh/filter.h
-        if (sigma > 0.01) {
-            int size = std::ceil(sigma*4) + 1;
-            cv::GaussianBlur(image, image, cv::Size (size, size), sigma, sigma);
-        }
-        
-        GraphSegmentationMagicThreshold magic(threshold);
-        GraphSegmentationEuclideanRGB distance;
-        
-        GraphSegmentation segmenter;
-        segmenter.setMagic(&magic);
-        segmenter.setDistance(&distance);
-        
-        boost::timer timer;
-        segmenter.buildGraph(image);
-        segmenter.oversegmentGraph();
-        
-        segmenter.enforceMinimumSegmentSize(minimum_segment_size);
-        float elapsed = timer.elapsed();
-        total += elapsed;
-        
-        cv::Mat labels = segmenter.deriveLabels();
-        
-        int unconnected_components = SuperpixelTools::relabelConnectedSuperpixels(labels);
-        
-        if (wordy) {
-            std::cout << SuperpixelTools::countSuperpixels(labels) << " superpixels for " << it->first 
-                    << " (" << unconnected_components << " not connected; " 
-                    << elapsed <<")." << std::endl;
-        }
-        
-        if (!output_dir.empty()) {
-            boost::filesystem::path csv_file(output_dir 
-                    / boost::filesystem::path(prefix + it->second.stem().string() + ".csv"));
-            IOUtil::writeMatCSV<int>(csv_file, labels);
-        }
-        
-        if (!vis_dir.empty()) {
-            boost::filesystem::path contours_file(vis_dir 
-                    / boost::filesystem::path(prefix + it->second.stem().string() + ".png"));
-            cv::Mat image_contours;
-            Visualization::drawContours(image, labels, image_contours);
-            cv::imwrite(contours_file.string(), image_contours);
-        }
+    // See lib_fh/filter.h
+    if (sigma > 0.01) {
+        int size = std::ceil(sigma*4) + 1;
+        cv::GaussianBlur(image, image, cv::Size (size, size), sigma, sigma);
     }
-    
-    if (wordy) {
-        std::cout << "Average time: " << total / images.size() << "." << std::endl;
-    }
-    
-    if (!output_dir.empty()) {
-        std::ofstream runtime_file(output_dir.string() + "/" + prefix + "runtime.txt", 
-                std::ofstream::out | std::ofstream::app);
         
-        runtime_file << total / images.size() << "\n";
-        runtime_file.close();
-    }
+    GraphSegmentationMagicThreshold magic(threshold);
+    GraphSegmentationEuclideanRGB distance;
+        
+    GraphSegmentation segmenter;
+    segmenter.setMagic(&magic);
+    segmenter.setDistance(&distance);
+        
+    segmenter.buildGraph(image);
+    segmenter.oversegmentGraph();
+        
+    segmenter.enforceMinimumSegmentSize(minimum_segment_size);
+        
+    cv::Mat labels = segmenter.deriveLabels();
+        
+    int unconnected_components = SuperpixelTools::relabelConnectedSuperpixels(labels);
+        
+    cv::Mat blackima = cv::Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+    
+    cv::Mat image_contours;
+    Visualization::drawContours(blackima, labels, image_contours);
+    cv::imwrite(store_contour, image_contours);
+
+    cv::Mat image_means;
+    Visualization::drawMeans(image, labels, image_means);
+    cv::imwrite(store_mean, image_means);  
     
     return 0;
 }

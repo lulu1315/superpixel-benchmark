@@ -21,6 +21,7 @@
 #define COMPACT_WATERSHED_H
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <stdio.h>
 
 

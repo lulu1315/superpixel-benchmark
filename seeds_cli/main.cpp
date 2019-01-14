@@ -82,11 +82,9 @@ int main(int argc, const char** argv) {
         ("iterations,t", boost::program_options::value<int>()->default_value(2), "iterations at each level")
         ("color-space,r", boost::program_options::value<int>()->default_value(1), "color space: 0 = RGB, 1 = Lab, 2 = HSV")
         ("fair,f", "for a fair comparison with other algorithms, quadratic blocks are used for initialization")
-        ("csv,o", boost::program_options::value<std::string>()->default_value(""), "save segmentation as CSV file")
-        ("vis,v", boost::program_options::value<std::string>()->default_value(""), "visualize contours")
-        ("prefix,x", boost::program_options::value<std::string>()->default_value(""), "output file prefix")
-        ("wordy,w", "verbose/wordy/debug");
-        
+        ("oc", boost::program_options::value<std::string>()->default_value("output"), "name of the contour picture")
+        ("om", boost::program_options::value<std::string>()->default_value("output"), "name of the mean picture");   
+       
     boost::program_options::positional_options_description positionals;
     positionals.add("input", 1);
     
@@ -99,33 +97,9 @@ int main(int argc, const char** argv) {
         return 1;
     }
     
-    boost::filesystem::path output_dir(parameters["csv"].as<std::string>());
-    if (!output_dir.empty()) {
-        if (!boost::filesystem::is_directory(output_dir)) {
-            boost::filesystem::create_directories(output_dir);
-        }
-    }
-    
-    boost::filesystem::path vis_dir(parameters["vis"].as<std::string>());
-    if (!vis_dir.empty()) {
-        if (!boost::filesystem::is_directory(vis_dir)) {
-            boost::filesystem::create_directories(vis_dir);
-        }
-    }
-    
-    boost::filesystem::path input_dir(parameters["input"].as<std::string>());
-    if (!boost::filesystem::is_directory(input_dir)) {
-        std::cout << "Image directory not found ..." << std::endl;
-        return 1;
-    }
-    
-    std::string prefix = parameters["prefix"].as<std::string>();
-    
-    bool wordy = false;
-    if (parameters.find("wordy") != parameters.end()) {
-        wordy = true;
-    }
-    
+    std::string inputfile = parameters["input"].as<std::string>();
+    std::string store_contour = parameters["oc"].as<std::string>();
+    std::string store_mean = parameters["om"].as<std::string>();            
     int superpixels = parameters["superpixels"].as<int>();
     int iterations = parameters["iterations"].as<int>();
     int bins = parameters["bins"].as<int>();
@@ -140,81 +114,46 @@ int main(int argc, const char** argv) {
         std::cout << "Invalid color space." << std::endl;
         return 1;
     }
-    
-    std::multimap<std::string, boost::filesystem::path> images;
-    std::vector<std::string> extensions;
-    IOUtil::getImageExtensions(extensions);
-    IOUtil::readDirectory(input_dir, extensions, images);
-    
-    float total = 0;
-    for (std::multimap<std::string, boost::filesystem::path>::iterator it = images.begin(); 
-            it != images.end(); ++it) {
         
-        cv::Mat image = cv::imread(it->first);
+    cv::Mat image = cv::imread(inputfile);
         
-        int region_width = 2;
-        int region_height = 2;
-        int levels = 2;
+    int region_width = 2;
+    int region_height = 2;
+    int levels = 2;
         
-        if (parameters.find("fair") != parameters.end()) {
-            SuperpixelTools::computeRegionSizeLevels(image, superpixels, 
-                    region_width, levels);
-            region_height = region_width;
-        }
-        else {
-            SuperpixelTools::computeHeightWidthLevelsFromSuperpixels(image, 
-                    superpixels, region_height, region_width, levels);
-        }
+    if (parameters.find("fair") != parameters.end()) {
+        SuperpixelTools::computeRegionSizeLevels(image, superpixels, 
+                region_width, levels);
+        region_height = region_width;
+    }
+    else {
+        SuperpixelTools::computeHeightWidthLevelsFromSuperpixels(image, 
+                superpixels, region_height, region_width, levels);
+    }
         
-        boost::timer timer;
-        SEEDS seeds(image.cols, image.rows, image.channels(), bins, 0, 
-                confidence, prior, means, color_space);
-        seeds.initialize(image, region_width, region_height, levels);
-        seeds.iterate(iterations);
-        float elapsed = timer.elapsed();
-        total += elapsed;
+    SEEDS seeds(image.cols, image.rows, image.channels(), bins, 0, 
+            confidence, prior, means, color_space);
+    seeds.initialize(image, region_width, region_height, levels);
+    seeds.iterate(iterations);
         
-        cv::Mat labels(image.rows, image.cols, CV_32SC1, cv::Scalar(0));
-        for (int i = 0; i < image.rows; ++i) {
-            for (int j = 0; j < image.cols; ++j) {
-                labels.at<int>(i, j) = seeds.labels[levels - 1][j + image.cols*i];
-            }
-        }
-        
-        int unconnected_components = SuperpixelTools::relabelConnectedSuperpixels(labels);
-        
-        if (wordy) {
-            std::cout << SuperpixelTools::countSuperpixels(labels) << " superpixels for " << it->first 
-                    << " (" << unconnected_components << " not connected; " 
-                    << elapsed <<")." << std::endl;
-        }
-        
-        if (!output_dir.empty()) {
-            boost::filesystem::path csv_file(output_dir 
-                    / boost::filesystem::path(prefix + it->second.stem().string() + ".csv"));
-            IOUtil::writeMatCSV<int>(csv_file, labels);
-        }
-        
-        if (!vis_dir.empty()) {
-            boost::filesystem::path contours_file(vis_dir 
-                    / boost::filesystem::path(prefix + it->second.stem().string() + ".png"));
-            cv::Mat image_contours;
-            Visualization::drawContours(image, labels, image_contours);
-            cv::imwrite(contours_file.string(), image_contours);
+    cv::Mat labels(image.rows, image.cols, CV_32SC1, cv::Scalar(0));
+    for (int i = 0; i < image.rows; ++i) {
+        for (int j = 0; j < image.cols; ++j) {
+            labels.at<int>(i, j) = seeds.labels[levels - 1][j + image.cols*i];
         }
     }
-    
-    if (wordy) {
-        std::cout << "Average time: " << total / images.size() << "." << std::endl;
-    }
-    
-    if (!output_dir.empty()) {
-        std::ofstream runtime_file(output_dir.string() + "/" + prefix + "runtime.txt", 
-                std::ofstream::out | std::ofstream::app);
         
-        runtime_file << total / images.size() << "\n";
-        runtime_file.close();
-    }
+    int unconnected_components = SuperpixelTools::relabelConnectedSuperpixels(labels);
+        
+    cv::Mat blackima = cv::Mat::zeros(cv::Size(image.cols, image.rows), CV_8UC3);
+    
+    cv::Mat image_contours;
+    Visualization::drawContours(blackima, labels, image_contours);
+    cv::imwrite(store_contour, image_contours);
+
+    cv::Mat image_means;
+    Visualization::drawMeans(image, labels, image_means);
+    cv::imwrite(store_mean, image_means);  
     
     return 0;
 }
