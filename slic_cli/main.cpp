@@ -73,7 +73,8 @@ int main(int argc, const char** argv) {
         ("iterations,t", boost::program_options::value<int>()->default_value(10), "iterations")
         ("color-space,r", boost::program_options::value<int>()->default_value(1), "color space: 0 = RGB, > 0 = Lab")
         ("oc", boost::program_options::value<std::string>()->default_value("output"), "name of the contour picture")
-        ("om", boost::program_options::value<std::string>()->default_value("output"), "name of the mean picture");   
+        ("om", boost::program_options::value<std::string>()->default_value("output"), "name of the mean picture")  
+        ("or", boost::program_options::value<std::string>()->default_value("output"), "name of the random picture");   
          
     boost::program_options::positional_options_description positionals;
     positionals.add("input", 1);
@@ -89,7 +90,8 @@ int main(int argc, const char** argv) {
     
     std::string inputfile = parameters["input"].as<std::string>();
     std::string store_contour = parameters["oc"].as<std::string>();
-    std::string store_mean = parameters["om"].as<std::string>();                
+    std::string store_mean = parameters["om"].as<std::string>();    
+    std::string store_random = parameters["or"].as<std::string>();    
     int superpixels = parameters["superpixels"].as<int>();
     double compactness = parameters["compactness"].as<double>();
     int iterations = parameters["iterations"].as<int>();
@@ -117,6 +119,10 @@ int main(int argc, const char** argv) {
     cv::Mat image_means;
     Visualization::drawMeans(image, labels, image_means);
     cv::imwrite(store_mean, image_means);  
+    
+    cv::Mat image_random;
+    Visualization::drawRandom(labels, image_random);
+    cv::imwrite(store_random, image_random);  
     
     return 0;
 }
